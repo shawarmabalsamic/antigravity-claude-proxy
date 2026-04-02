@@ -586,6 +586,44 @@ function toGoogleType(type) {
 }
 
 /**
+ * Strip enum from non-string types.
+ * Gemini's function declaration schema only allows enum on STRING type.
+ * Enum hints are already preserved in the description by addEnumHints().
+ *
+ * @param {Object} schema - Schema to process
+ * @returns {Object} Schema with enum stripped from non-string types
+ */
+function stripEnumFromNonString(schema) {
+    if (!schema || typeof schema !== 'object') return schema;
+    if (Array.isArray(schema)) return schema.map(stripEnumFromNonString);
+
+    let result = { ...schema };
+
+    // Recursively process properties
+    if (result.properties && typeof result.properties === 'object') {
+        const newProps = {};
+        for (const [key, value] of Object.entries(result.properties)) {
+            newProps[key] = stripEnumFromNonString(value);
+        }
+        result.properties = newProps;
+    }
+
+    // Recursively process items
+    if (result.items) {
+        result.items = Array.isArray(result.items)
+            ? result.items.map(stripEnumFromNonString)
+            : stripEnumFromNonString(result.items);
+    }
+
+    // Strip enum if type is not STRING
+    if (result.enum && result.type && result.type !== 'STRING') {
+        delete result.enum;
+    }
+
+    return result;
+}
+
+/**
  * Cleans JSON schema for Gemini API compatibility.
  * Uses a multi-phase pipeline matching opencode-antigravity-auth approach.
  *
@@ -668,6 +706,9 @@ export function cleanSchema(schema) {
     if (result.type && typeof result.type === 'string') {
         result.type = toGoogleType(result.type);
     }
+
+    // Phase 6: Strip enum from non-STRING types (Gemini only allows enum on STRING)
+    result = stripEnumFromNonString(result);
 
     return result;
 }
